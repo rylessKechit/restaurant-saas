@@ -5,7 +5,7 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 global.whatsappQR = null;
 global.whatsappReady = false;
 
-// Configuration WhatsApp text-only (sans media processing)
+// Configuration WhatsApp pour Render (TESTED & WORKING)
 const client = new Client({
     authStrategy: new LocalAuth({
         dataPath: './.wwebjs_auth'
@@ -24,49 +24,45 @@ const client = new Client({
             '--disable-features=VizDisplayCompositor',
             '--disable-background-timer-throttling',
             '--disable-backgrounding-occluded-windows',
-            '--disable-renderer-backgrounding',
-            '--disable-background-networking',
-            '--disable-ipc-flooding-protection',
-            '--single-process',
-            '--disable-extensions',
-            '--disable-plugins',
-            '--disable-default-apps',
-            '--disable-translate',
-            '--disable-sync',
-            '--hide-scrollbars',
-            '--mute-audio',
-            '--no-default-browser-check',
-            '--disable-hang-monitor',
-            '--disable-prompt-on-repost',
-            '--disable-domain-reliability',
-            '--disable-component-extensions-with-background-pages'
+            '--disable-renderer-backgrounding'
         ],
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser'
-    },
-    // Version web stable pour éviter les problèmes
-    webVersionCache: {
-        type: 'remote',
-        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH
     }
 });
 
 // Event: QR Code pour authentification
 client.on('qr', (qr) => {
-    console.log('📱 QR Code received - scan with WhatsApp app');
+    console.log('📱 QR Code generated - ready for scanning');
     global.whatsappQR = qr;
+});
+
+// Event: Loading state
+client.on('loading_screen', (percent, message) => {
+    console.log(`📱 Loading: ${percent}% - ${message}`);
+});
+
+// Event: Authenticated
+client.on('authenticated', () => {
+    console.log('📱 WhatsApp authenticated successfully');
+    global.whatsappQR = null;
 });
 
 // Event: Client prêt
 client.on('ready', () => {
-    console.log('✅ WhatsApp client is ready!');
+    console.log('✅ WhatsApp client is ready and connected!');
     global.whatsappReady = true;
-    global.whatsappQR = null; // Clear QR once connected
+    global.whatsappQR = null;
 });
 
 // Event: Échec d'authentification
 client.on('auth_failure', (msg) => {
     console.error('❌ WhatsApp authentication failed:', msg);
     global.whatsappReady = false;
+    // Restart after failure
+    setTimeout(() => {
+        console.log('🔄 Restarting WhatsApp client...');
+        client.initialize();
+    }, 5000);
 });
 
 // Event: Déconnexion
@@ -74,18 +70,21 @@ client.on('disconnected', (reason) => {
     console.log('📱 WhatsApp disconnected:', reason);
     global.whatsappReady = false;
     global.whatsappQR = null;
+    
+    // Auto-reconnect
+    setTimeout(() => {
+        console.log('🔄 Attempting to reconnect...');
+        client.initialize();
+    }, 3000);
 });
 
 // Event: Erreur
 client.on('error', (error) => {
-    console.error('❌ WhatsApp error:', error);
+    console.error('❌ WhatsApp client error:', error);
 });
 
 /**
  * Envoyer un message texte WhatsApp
- * @param {string} number - Numéro de téléphone (avec code pays)
- * @param {string} message - Message à envoyer
- * @returns {Promise<Object>} Résultat de l'envoi
  */
 async function sendMessage(number, message) {
     try {
@@ -93,17 +92,35 @@ async function sendMessage(number, message) {
             throw new Error('WhatsApp client not ready');
         }
 
-        // Format du numéro (ajouter @c.us si nécessaire)
-        const chatId = number.includes('@c.us') ? number : `${number}@c.us`;
+        // Format du numéro UAE (+971)
+        let formattedNumber = number.replace(/\D/g, ''); // Remove non-digits
+        
+        // Add UAE country code if missing
+        if (!formattedNumber.startsWith('971')) {
+            if (formattedNumber.startsWith('0')) {
+                formattedNumber = '971' + formattedNumber.substring(1);
+            } else if (formattedNumber.length === 9) {
+                formattedNumber = '971' + formattedNumber;
+            }
+        }
+        
+        const chatId = `${formattedNumber}@c.us`;
+        
+        // Vérifier si le numéro existe
+        const isRegistered = await client.isRegisteredUser(chatId);
+        if (!isRegistered) {
+            throw new Error(`Number ${number} is not registered on WhatsApp`);
+        }
         
         // Envoyer le message
         const result = await client.sendMessage(chatId, message);
         
-        console.log(`📤 WhatsApp message sent to ${number}`);
+        console.log(`📤 WhatsApp message sent to ${formattedNumber}`);
         return { 
             success: true, 
-            messageId: result.id,
-            timestamp: new Date().toISOString()
+            messageId: result.id._serialized,
+            timestamp: new Date().toISOString(),
+            to: formattedNumber
         };
     } catch (error) {
         console.error(`❌ Error sending WhatsApp message to ${number}:`, error.message);
@@ -117,21 +134,34 @@ async function sendMessage(number, message) {
 
 /**
  * Envoyer notification de commande
- * @param {Object} order - Données de la commande
- * @param {string} phone - Numéro de téléphone du client
  */
 async function sendOrderNotification(order, phone) {
-    const message = `🍕 *Nouvelle commande reçue!*
+    const message = `🍕 *${order.restaurant || 'Restaurant'} - Nouvelle commande!*
 
 *Commande #${order.orderNumber}*
 *Client:* ${order.customer.name}
+*Téléphone:* ${order.customer.phone}
 *Type:* ${order.type === 'delivery' ? '🚚 Livraison' : '🏪 À emporter'}
+
+*Articles commandés:*
+${order.items.map(item => 
+    `• ${item.quantity}x ${item.product.name} - ${item.unitPrice} AED`
+).join('\n')}
+
+*Sous-total:* ${order.pricing.subtotal} AED
+${order.pricing.deliveryFee > 0 ? `*Frais de livraison:* ${order.pricing.deliveryFee} AED` : ''}
 *Total:* ${order.pricing.total} AED
 
-*Articles:*
-${order.items.map(item => `• ${item.quantity}x ${item.product.name}`).join('\n')}
+${order.type === 'delivery' ? 
+    `*Adresse de livraison:*
+${order.delivery.address.street}
+${order.delivery.address.city}
+${order.delivery.instructions ? `*Instructions:* ${order.delivery.instructions}` : ''}` 
+    : '*À emporter au restaurant*'}
 
-${order.type === 'delivery' ? `*Adresse:* ${order.delivery.address.street}` : ''}
+${order.notes ? `*Notes spéciales:* ${order.notes}` : ''}
+
+*Heure de commande:* ${new Date(order.createdAt).toLocaleString('fr-FR', { timeZone: 'Asia/Dubai' })}
 
 Merci pour votre commande! 🙏`;
 
@@ -140,28 +170,36 @@ Merci pour votre commande! 🙏`;
 
 /**
  * Envoyer mise à jour de statut
- * @param {Object} order - Données de la commande
- * @param {string} phone - Numéro de téléphone du client
- * @param {string} status - Nouveau statut
  */
 async function sendStatusUpdate(order, phone, status) {
     const statusMessages = {
-        confirmed: '✅ Votre commande a été confirmée et est en préparation',
-        preparing: '👨‍🍳 Votre commande est en cours de préparation',
-        ready: '🍽️ Votre commande est prête!',
-        out_for_delivery: '🚚 Votre commande est en route',
-        delivered: '🎉 Votre commande a été livrée avec succès!'
+        confirmed: '✅ *Commande confirmée* - Nous préparons votre commande',
+        preparing: '👨‍🍳 *En préparation* - Votre commande est en cours de préparation',
+        ready: '🍽️ *Commande prête* - Votre commande est prête!',
+        out_for_delivery: '🚚 *En route* - Le livreur est parti avec votre commande',
+        delivered: '🎉 *Livré* - Votre commande a été livrée avec succès!'
     };
 
-    const message = `📦 *Mise à jour de commande*
+    const etaInfo = {
+        confirmed: order.type === 'delivery' ? '⏱️ Temps estimé: 30-45 minutes' : '⏱️ Temps estimé: 15-20 minutes',
+        preparing: '⏱️ Bientôt prêt...',
+        ready: order.type === 'pickup' ? '📍 Vous pouvez venir récupérer votre commande' : '🚚 Le livreur va bientôt partir',
+        out_for_delivery: `⏱️ Arrivée estimée: ${order.delivery?.estimatedTime || 15} minutes`,
+        delivered: '✨ Bon appétit!'
+    };
+
+    const message = `📦 *Mise à jour de votre commande*
 
 *Commande #${order.orderNumber}*
 ${statusMessages[status]}
 
-${status === 'ready' && order.type === 'pickup' ? 'Vous pouvez venir la récupérer.' : ''}
-${status === 'out_for_delivery' ? `ETA: ${order.delivery.estimatedTime} minutes` : ''}
+${etaInfo[status]}
 
-Merci! 🙏`;
+${status === 'ready' && order.type === 'pickup' ? 
+    `📍 *Adresse du restaurant:*
+${order.restaurant?.address || 'Voir l\'application pour l\'adresse'}` : ''}
+
+Merci de votre confiance! 🙏`;
 
     return sendMessage(phone, message);
 }
@@ -171,8 +209,16 @@ Merci! 🙏`;
  */
 function initWhatsApp() {
     try {
-        console.log('🚀 Initializing WhatsApp client...');
+        console.log('🚀 Initializing WhatsApp client for Render...');
         client.initialize();
+        
+        // Timeout de sécurité
+        setTimeout(() => {
+            if (!global.whatsappReady) {
+                console.log('⚠️ WhatsApp initialization taking longer than expected...');
+            }
+        }, 30000);
+        
     } catch (error) {
         console.error('❌ Error initializing WhatsApp:', error);
     }
@@ -198,7 +244,11 @@ function isReady() {
 async function getClientInfo() {
     try {
         if (!global.whatsappReady) {
-            return { ready: false };
+            return { 
+                ready: false, 
+                message: 'Client not ready',
+                qrAvailable: !!global.whatsappQR
+            };
         }
 
         const info = await client.info;
@@ -206,11 +256,38 @@ async function getClientInfo() {
             ready: true,
             user: info.wid.user,
             platform: info.platform,
-            phone: info.wid._serialized
+            phone: info.wid._serialized,
+            pushname: info.pushname,
+            battery: info.battery || 'Unknown'
         };
     } catch (error) {
         console.error('❌ Error getting client info:', error);
-        return { ready: false, error: error.message };
+        return { 
+            ready: false, 
+            error: error.message,
+            qrAvailable: !!global.whatsappQR
+        };
+    }
+}
+
+/**
+ * Redémarrer le client WhatsApp
+ */
+async function restartClient() {
+    try {
+        console.log('🔄 Restarting WhatsApp client...');
+        global.whatsappReady = false;
+        global.whatsappQR = null;
+        
+        await client.destroy();
+        setTimeout(() => {
+            client.initialize();
+        }, 2000);
+        
+        return { success: true, message: 'Client restart initiated' };
+    } catch (error) {
+        console.error('❌ Error restarting client:', error);
+        return { success: false, error: error.message };
     }
 }
 
@@ -222,5 +299,6 @@ module.exports = {
     initWhatsApp,
     getQR,
     isReady,
-    getClientInfo
+    getClientInfo,
+    restartClient
 };

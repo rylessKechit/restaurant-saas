@@ -1,62 +1,53 @@
-# Production Dockerfile for Render - Puppeteer Fixed
-FROM node:18-alpine
+# Dockerfile for Render - WhatsApp-web.js WORKING
+FROM node:18
 
-# Install Chromium and dependencies for Puppeteer
-RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    freetype-dev \
-    harfbuzz \
+# Install Google Chrome dependencies
+RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg \
     ca-certificates \
-    ttf-freefont \
-    curl \
-    dumb-init \
-    udev \
-    ttf-opensans
+    procps \
+    libxss1 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Tell Puppeteer to skip installing Chromium. We'll be using the installed package.
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+# Install Google Chrome
+RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list' \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
 
-# Create app directory
+# Set working directory
 WORKDIR /app
-
-# Create user for security (Chromium won't run as root)
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
 
 # Copy package files
 COPY package*.json ./
 
 # Install dependencies
-RUN npm config set fund false && \
-    npm config set audit false && \
-    npm install --omit=dev --no-optional --silent
+RUN npm install --omit=dev
 
 # Copy source code
 COPY src/ ./src/
 
-# Create WhatsApp session directory with proper permissions
-RUN mkdir -p /app/.wwebjs_auth && \
-    chown -R nodejs:nodejs /app
+# Create WhatsApp session directory
+RUN mkdir -p /app/.wwebjs_auth
 
-# Switch to non-root user
-USER nodejs
+# Create user and set permissions
+RUN groupadd -r pptruser && useradd -r -g pptruser -G audio,video pptruser \
+    && mkdir -p /home/pptruser/Downloads \
+    && chown -R pptruser:pptruser /home/pptruser \
+    && chown -R pptruser:pptruser /app
 
-# Set environment variables
-ENV NODE_ENV=production \
-    NPM_CONFIG_LOGLEVEL=error
+# Set Chrome/Puppeteer environment
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome \
+    NODE_ENV=production
 
 # Expose port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8000/healthz || exit 1
-
-# Use dumb-init for proper signal handling
-ENTRYPOINT ["dumb-init", "--"]
+# Switch to non-root user
+USER pptruser
 
 # Start application
 CMD ["node", "src/server.js"]
