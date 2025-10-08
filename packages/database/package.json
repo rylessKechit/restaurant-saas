@@ -1,0 +1,16 @@
+{
+  "name": "@restaurant-saas/database",
+  "version": "1.0.0",
+  "description": "Mongoose schemas and database utilities",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./models": "./models/index.js"
+  },
+  "dependencies": {
+    "mongoose": "^8.0.3"
+  },
+  "peerDependencies": {
+    "@restaurant-saas/shared": "1.0.0"
+  }
+}

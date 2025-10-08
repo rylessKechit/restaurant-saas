@@ -1,0 +1,19 @@
+{
+  "name": "@restaurant-saas/shared",
+  "version": "1.0.0",
+  "description": "Shared utilities and types",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": "./index.js",
+    "./types": "./types/index.js",
+    "./utils": "./utils/index.js",
+    "./constants": "./constants/index.js"
+  },
+  "dependencies": {
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
