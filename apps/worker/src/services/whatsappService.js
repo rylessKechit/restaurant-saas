@@ -22,9 +22,26 @@ const client = new Client({
             '--disable-gpu',
             '--disable-web-security',
             '--disable-features=VizDisplayCompositor',
-            '--single-process'
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-renderer-backgrounding',
+            '--disable-background-networking',
+            '--disable-ipc-flooding-protection',
+            '--single-process',
+            '--disable-extensions',
+            '--disable-plugins',
+            '--disable-default-apps',
+            '--disable-translate',
+            '--disable-sync',
+            '--hide-scrollbars',
+            '--mute-audio',
+            '--no-default-browser-check',
+            '--disable-hang-monitor',
+            '--disable-prompt-on-repost',
+            '--disable-domain-reliability',
+            '--disable-component-extensions-with-background-pages'
         ],
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium'
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser'
     },
     // Version web stable pour éviter les problèmes
     webVersionCache: {
