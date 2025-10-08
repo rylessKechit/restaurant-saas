@@ -1,17 +1,17 @@
-# Production Dockerfile for Render
-FROM node:18-slim
+# Production Dockerfile for Render - Lightweight (No FFmpeg)
+FROM node:18-alpine
 
-# Install Chrome dependencies + FFmpeg for WhatsApp media processing
-RUN apt-get update && apt-get install -y \
+# Install minimal dependencies for Puppeteer + WhatsApp
+RUN apk add --no-cache \
     chromium \
-    ffmpeg \
-    fonts-ipafont-gothic \
-    fonts-wqy-zenhei \
-    fonts-thai-tlwg \
-    fonts-kacst \
+    nss \
+    freetype \
+    freetype-dev \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
     curl \
-    --no-install-recommends && \
-    rm -rf /var/lib/apt/lists/*
+    dumb-init
 
 # Set working directory
 WORKDIR /app
@@ -19,19 +19,22 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install --omit=dev
+# Configure npm for faster installs and install dependencies
+RUN npm config set fund false && \
+    npm config set audit false && \
+    npm install --omit=dev --no-optional --silent
 
 # Copy source code
 COPY src/ ./src/
 
-# Create directory for WhatsApp session
+# Create WhatsApp session directory
 RUN mkdir -p /app/.wwebjs_auth
 
-# Set environment variables for Puppeteer
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV NODE_ENV=production
+# Set environment variables
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    NODE_ENV=production \
+    NPM_CONFIG_LOGLEVEL=error
 
 # Expose port
 EXPOSE 8000
@@ -40,5 +43,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/healthz || exit 1
 
-# Start the application
+# Start application
 CMD ["npm", "start"]

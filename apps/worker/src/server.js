@@ -3,6 +3,8 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { connectDB } = require('./utils/database');
+const { initWhatsApp } = require('./services/whatsappService');
+const whatsappRoutes = require('./routes/whatsapp');
 require('dotenv').config();
 
 const app = express();
@@ -34,7 +36,8 @@ app.get('/healthz', (req, res) => {
     timestamp: new Date().toISOString(),
     service: 'restaurant-worker',
     version: '1.0.0',
-    database: require('mongoose').connection.readyState === 1 ? 'connected' : 'disconnected'
+    database: require('mongoose').connection.readyState === 1 ? 'connected' : 'disconnected',
+    whatsapp: require('./services/whatsappService').isReady() ? 'ready' : 'not_ready'
   });
 });
 
@@ -45,22 +48,19 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     endpoints: [
       'GET /healthz',
-      'GET /whatsapp/qrcode',
+      'GET /whatsapp/status',
+      'GET /whatsapp/qr',
       'POST /whatsapp/send',
+      'POST /whatsapp/order-notification',
+      'POST /whatsapp/status-update',
       'POST /email/send',
       'POST /webhooks/order-status'
     ]
   });
 });
 
-// WhatsApp routes placeholder
-app.get('/whatsapp/qrcode', (req, res) => {
-  res.json({ message: 'WhatsApp QR endpoint - to be implemented' });
-});
-
-app.post('/whatsapp/send', (req, res) => {
-  res.json({ message: 'WhatsApp send endpoint - to be implemented' });
-});
+// Routes
+app.use('/whatsapp', whatsappRoutes);
 
 // Email routes placeholder
 app.post('/email/send', (req, res) => {
@@ -95,10 +95,14 @@ const startServer = async () => {
     // Connect to MongoDB first
     await connectDB();
     
+    // Initialize WhatsApp
+    initWhatsApp();
+    
     // Start Express server
     app.listen(PORT, () => {
       console.log(`🚀 Worker server running on port ${PORT}`);
       console.log(`📊 Health check: http://localhost:${PORT}/healthz`);
+      console.log(`📱 WhatsApp QR: http://localhost:${PORT}/whatsapp/qr`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     });
   } catch (error) {
