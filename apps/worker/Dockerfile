@@ -1,9 +1,10 @@
 # Production Dockerfile for Render
 FROM node:18-slim
 
-# Install Chrome dependencies for Puppeteer
+# Install Chrome dependencies + FFmpeg for WhatsApp media processing
 RUN apt-get update && apt-get install -y \
     chromium \
+    ffmpeg \
     fonts-ipafont-gothic \
     fonts-wqy-zenhei \
     fonts-thai-tlwg \
@@ -18,7 +19,7 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies (use npm install instead of npm ci)
+# Install dependencies
 RUN npm install --omit=dev
 
 # Copy source code
