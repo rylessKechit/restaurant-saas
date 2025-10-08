@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     fonts-wqy-zenhei \
     fonts-thai-tlwg \
     fonts-kacst \
+    curl \
     --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
@@ -17,8 +18,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install dependencies (use npm install instead of npm ci)
+RUN npm install --omit=dev
 
 # Copy source code
 COPY src/ ./src/
