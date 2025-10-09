@@ -12,11 +12,15 @@
     "dev:web": "npm run dev --workspace=apps/web",
     "dev:worker": "npm run dev --workspace=apps/worker",
     "build": "npm run build --workspaces",
+    "build:packages": "npm run build --workspace=packages/database",
     "lint": "npm run lint --workspaces",
-    "test": "npm run test --workspaces"
+    "test": "npm run test --workspaces",
+    "seed": "cd apps/web && npx tsx ../../scripts/seed.ts",
+    "setup": "npm install && npm run build:packages && npm run seed"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "tsx": "^4.0.0"
   },
   "engines": {
     "node": ">=18.0.0",

@@ -3,12 +3,22 @@
   "version": "1.0.0",
   "description": "Mongoose schemas and database utilities",
   "main": "index.js",
+  "types": "index.d.ts",
   "exports": {
     ".": "./index.js",
-    "./models": "./models/index.js"
+    "./models": "./models/index.js",
+    "./utils": "./utils/index.js"
+  },
+  "scripts": {
+    "build": "tsc --noEmit false --declaration",
+    "dev": "tsc --watch --noEmit false --declaration"
   },
   "dependencies": {
     "mongoose": "^8.0.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "@types/node": "^20.0.0"
   },
   "peerDependencies": {
     "@restaurant-saas/shared": "1.0.0"

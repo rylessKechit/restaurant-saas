@@ -1,25 +1,64 @@
 // packages/database/models/index.ts
-import mongoose from 'mongoose';
+import mongoose, { Schema, Document, Model } from 'mongoose';
 
-// Base schema with tenant isolation
-const baseSchema = {
-  tenantId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Tenant',
-    required: function(this: any) { 
-      // tenantId not required for Tenant and User models
-      return !['Tenant', 'User'].includes(this.constructor.modelName);
-    }
+// =============================================================================
+// BASE INTERFACES
+// =============================================================================
+
+interface BaseDocument extends Document {
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface TenantDocument extends BaseDocument {
+  tenantId: mongoose.Types.ObjectId;
+}
+
+// =============================================================================
+// TENANT MODEL
+// =============================================================================
+
+interface ITenant extends BaseDocument {
+  name: string;
+  subdomain: string;
+  domain?: string;
+  settings: {
+    branding: {
+      primaryColor: string;
+      logo?: string;
+      favicon?: string;
+    };
+    contact: {
+      phone?: string;
+      email?: string;
+      address?: string;
+    };
+    business: {
+      cuisine: string;
+      description?: string;
+      hours: Map<string, { open: string; close: string; closed: boolean }>;
+    };
+  };
+  subscription: {
+    status: 'active' | 'inactive' | 'suspended';
+    plan: 'basic' | 'premium';
+    stripeCustomerId?: string;
+    stripeSubscriptionId?: string;
+    expiresAt?: Date;
+  };
+}
+
+const tenantSchema = new Schema<ITenant>({
+  name: { type: String, required: true, trim: true },
+  subdomain: { 
+    type: String, 
+    required: true, 
+    unique: true, 
+    lowercase: true,
+    trim: true,
+    match: /^[a-z0-9-]+$/
   },
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
-};
-
-// Tenant Model
-const tenantSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  subdomain: { type: String, required: true, unique: true },
-  domain: { type: String },
+  domain: { type: String, trim: true },
   
   settings: {
     branding: {
@@ -28,14 +67,22 @@ const tenantSchema = new mongoose.Schema({
       favicon: { type: String }
     },
     contact: {
-      phone: { type: String },
-      email: { type: String },
-      address: { type: String }
+      phone: { type: String, trim: true },
+      email: { type: String, lowercase: true, trim: true },
+      address: { type: String, trim: true }
     },
     business: {
-      cuisine: { type: String, required: true },
-      description: { type: String },
-      hours: { type: Map, of: mongoose.Schema.Types.Mixed }
+      cuisine: { type: String, required: true, trim: true },
+      description: { type: String, trim: true },
+      hours: { 
+        type: Map, 
+        of: {
+          open: { type: String, required: true },
+          close: { type: String, required: true },
+          closed: { type: Boolean, default: false }
+        },
+        default: new Map()
+      }
     }
   },
   
@@ -53,236 +100,291 @@ const tenantSchema = new mongoose.Schema({
     stripeCustomerId: { type: String },
     stripeSubscriptionId: { type: String },
     expiresAt: { type: Date }
-  },
-  
-  ...baseSchema
+  }
+}, {
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
-// User Model with RBAC
-const userSchema = new mongoose.Schema({
-  email: { type: String, required: true, unique: true },
-  name: { type: String },
+// =============================================================================
+// USER MODEL
+// =============================================================================
+
+interface IUser extends BaseDocument {
+  email: string;
+  name?: string;
+  role: 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'STAFF' | 'END_USER';
+  tenantId?: mongoose.Types.ObjectId;
+  profile: {
+    phone?: string;
+    avatar?: string;
+  };
+  permissions: string[];
+  isActive: boolean;
+  lastLoginAt?: Date;
+}
+
+const userSchema = new Schema<IUser>({
+  email: { 
+    type: String, 
+    required: true, 
+    unique: true, 
+    lowercase: true,
+    trim: true 
+  },
+  name: { type: String, trim: true },
   role: { 
     type: String, 
     enum: ['SUPER_ADMIN', 'TENANT_ADMIN', 'STAFF', 'END_USER'], 
     default: 'END_USER' 
   },
   tenantId: { 
-    type: mongoose.Schema.Types.ObjectId, 
+    type: Schema.Types.ObjectId, 
     ref: 'Tenant',
-    required: function(this: any) { 
+    required: function(this: IUser) { 
       return this.role !== 'SUPER_ADMIN'; 
-    }
+    },
+    index: true
   },
   
   profile: {
-    phone: { type: String },
+    phone: { type: String, trim: true },
     avatar: { type: String }
   },
   
-  permissions: [{ type: String }], // Additional granular permissions
+  permissions: [{ type: String }],
   isActive: { type: Boolean, default: true },
-  lastLoginAt: { type: Date },
-  
-  ...baseSchema
+  lastLoginAt: { type: Date }
+}, {
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
-// Category Model
-const categorySchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  description: { type: String },
+// =============================================================================
+// CATEGORY MODEL
+// =============================================================================
+
+interface ICategory extends TenantDocument {
+  name: string;
+  description?: string;
+  image?: string;
+  sortOrder: number;
+  isActive: boolean;
+}
+
+const categorySchema = new Schema<ICategory>({
+  name: { type: String, required: true, trim: true },
+  description: { type: String, trim: true },
   image: { type: String },
   sortOrder: { type: Number, default: 0 },
   isActive: { type: Boolean, default: true },
-  
-  ...baseSchema
+  tenantId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Tenant',
+    required: true,
+    index: true
+  }
+}, {
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
-// Product Model
-const productSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  description: { type: String },
-  price: { type: Number, required: true },
+// =============================================================================
+// PRODUCT MODEL
+// =============================================================================
+
+interface IProduct extends TenantDocument {
+  name: string;
+  description?: string;
+  price: number;
+  images: string[];
+  category: mongoose.Types.ObjectId;
+  inventory: {
+    trackStock: boolean;
+    stockQuantity: number;
+    lowStockAlert: number;
+  };
+  availability: {
+    isAvailable: boolean;
+    availableDays: string[];
+    availableHours: {
+      start: string;
+      end: string;
+    };
+  };
+  options: Array<{
+    name: string;
+    type: 'single' | 'multiple';
+    required: boolean;
+    choices: Array<{
+      name: string;
+      price: number;
+    }>;
+  }>;
+  nutritional: {
+    calories?: number;
+    allergens: string[];
+    dietary: string[];
+  };
+  seo: {
+    slug?: string;
+    metaTitle?: string;
+    metaDescription?: string;
+  };
+  sortOrder: number;
+  isActive: boolean;
+}
+
+const productSchema = new Schema<IProduct>({
+  name: { type: String, required: true, trim: true },
+  description: { type: String, trim: true },
+  price: { type: Number, required: true, min: 0 },
   images: [{ type: String }],
   
   category: { 
-    type: mongoose.Schema.Types.ObjectId, 
+    type: Schema.Types.ObjectId, 
     ref: 'Category', 
-    required: true 
+    required: true,
+    index: true
   },
   
   inventory: {
     trackStock: { type: Boolean, default: false },
-    stockQuantity: { type: Number, default: 0 },
-    lowStockAlert: { type: Number, default: 5 }
+    stockQuantity: { type: Number, default: 0, min: 0 },
+    lowStockAlert: { type: Number, default: 5, min: 0 }
   },
   
   availability: {
     isAvailable: { type: Boolean, default: true },
-    availableDays: [{ type: String }], // ['monday', 'tuesday', ...]
+    availableDays: [{ 
+      type: String, 
+      enum: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+    }],
     availableHours: {
-      start: { type: String }, // "09:00"
-      end: { type: String }    // "22:00"
+      start: { type: String, match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/ },
+      end: { type: String, match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/ }
     }
   },
   
   options: [{
-    name: { type: String, required: true },
+    name: { type: String, required: true, trim: true },
     type: { type: String, enum: ['single', 'multiple'], default: 'single' },
     required: { type: Boolean, default: false },
     choices: [{
-      name: { type: String, required: true },
-      price: { type: Number, default: 0 }
+      name: { type: String, required: true, trim: true },
+      price: { type: Number, default: 0, min: 0 }
     }]
   }],
   
   nutritional: {
-    calories: { type: Number },
-    allergens: [{ type: String }],
-    dietary: [{ type: String }] // ['vegetarian', 'vegan', 'gluten-free', ...]
+    calories: { type: Number, min: 0 },
+    allergens: [{ type: String, trim: true }],
+    dietary: [{ 
+      type: String, 
+      enum: ['vegetarian', 'vegan', 'gluten-free', 'dairy-free', 'nut-free', 'halal', 'kosher'],
+      trim: true 
+    }]
   },
   
   seo: {
-    slug: { type: String },
-    metaTitle: { type: String },
-    metaDescription: { type: String }
+    slug: { type: String, trim: true, lowercase: true },
+    metaTitle: { type: String, trim: true },
+    metaDescription: { type: String, trim: true }
   },
   
   sortOrder: { type: Number, default: 0 },
   isActive: { type: Boolean, default: true },
-  
-  ...baseSchema
+  tenantId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Tenant',
+    required: true,
+    index: true
+  }
+}, {
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
-// Customer Model
-const customerSchema = new mongoose.Schema({
-  email: { type: String },
-  phone: { type: String },
-  name: { type: String, required: true },
-  
-  addresses: [{
-    type: { type: String, enum: ['home', 'work', 'other'], default: 'home' },
-    street: { type: String, required: true },
-    city: { type: String, required: true },
-    postalCode: { type: String },
-    country: { type: String, default: 'UAE' },
-    coordinates: {
-      lat: { type: Number },
-      lng: { type: Number }
-    },
-    instructions: { type: String }
-  }],
-  
-  preferences: {
-    newsletter: { type: Boolean, default: false },
-    sms: { type: Boolean, default: true },
-    whatsapp: { type: Boolean, default: true }
-  },
-  
-  stats: {
-    totalOrders: { type: Number, default: 0 },
-    totalSpent: { type: Number, default: 0 },
-    lastOrderAt: { type: Date }
-  },
-  
-  ...baseSchema
-});
+// =============================================================================
+// INDEXES FOR PERFORMANCE
+// =============================================================================
 
-// Order Model
-const orderSchema = new mongoose.Schema({
-  orderNumber: { type: String, required: true, unique: true },
-  
-  customer: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Customer',
-    required: true
-  },
-  
-  items: [{
-    product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
-    quantity: { type: Number, required: true },
-    unitPrice: { type: Number, required: true },
-    selectedOptions: [{
-      optionName: { type: String },
-      choiceName: { type: String },
-      price: { type: Number }
-    }],
-    subtotal: { type: Number, required: true }
-  }],
-  
-  type: { type: String, enum: ['pickup', 'delivery'], required: true },
-  
-  delivery: {
-    address: {
-      street: { type: String },
-      city: { type: String },
-      postalCode: { type: String },
-      coordinates: {
-        lat: { type: Number },
-        lng: { type: Number }
-      },
-      instructions: { type: String }
-    },
-    fee: { type: Number, default: 0 },
-    estimatedTime: { type: Number } // minutes
-  },
-  
-  pickup: {
-    scheduledTime: { type: Date },
-    estimatedTime: { type: Number } // minutes
-  },
-  
-  payment: {
-    method: { type: String, enum: ['card', 'cash', 'wallet'], required: true },
-    status: { 
-      type: String, 
-      enum: ['pending', 'paid', 'failed', 'refunded'], 
-      default: 'pending' 
-    },
-    stripePaymentIntentId: { type: String },
-    amount: { type: Number, required: true }
-  },
-  
-  pricing: {
-    subtotal: { type: Number, required: true },
-    deliveryFee: { type: Number, default: 0 },
-    tax: { type: Number, default: 0 },
-    discount: { type: Number, default: 0 },
-    total: { type: Number, required: true }
-  },
-  
-  status: {
-    type: String,
-    enum: ['pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery', 'delivered', 'cancelled'],
-    default: 'pending'
-  },
-  
-  timeline: [{
-    status: { type: String },
-    timestamp: { type: Date, default: Date.now },
-    note: { type: String }
-  }],
-  
-  notes: { type: String },
-  
-  ...baseSchema
-});
-
-// Indexes for performance
+// Tenant indexes
 tenantSchema.index({ subdomain: 1 });
+tenantSchema.index({ 'subscription.status': 1 });
+
+// User indexes
 userSchema.index({ email: 1 });
 userSchema.index({ tenantId: 1, role: 1 });
-categorySchema.index({ tenantId: 1, sortOrder: 1 });
-productSchema.index({ tenantId: 1, category: 1, isActive: 1 });
-customerSchema.index({ tenantId: 1, email: 1 });
-customerSchema.index({ tenantId: 1, phone: 1 });
-orderSchema.index({ tenantId: 1, orderNumber: 1 });
-orderSchema.index({ tenantId: 1, status: 1, createdAt: -1 });
+userSchema.index({ tenantId: 1, isActive: 1 });
 
-// Models
-export const Tenant = mongoose.models.Tenant || mongoose.model('Tenant', tenantSchema);
-export const User = mongoose.models.User || mongoose.model('User', userSchema);
-export const Category = mongoose.models.Category || mongoose.model('Category', categorySchema);
-export const Product = mongoose.models.Product || mongoose.model('Product', productSchema);
-export const Customer = mongoose.models.Customer || mongoose.model('Customer', customerSchema);
-export const Order = mongoose.models.Order || mongoose.model('Order', orderSchema);
+// Category indexes
+categorySchema.index({ tenantId: 1, sortOrder: 1 });
+categorySchema.index({ tenantId: 1, isActive: 1 });
+
+// Product indexes
+productSchema.index({ tenantId: 1, category: 1, isActive: 1 });
+productSchema.index({ tenantId: 1, 'availability.isAvailable': 1 });
+productSchema.index({ tenantId: 1, sortOrder: 1 });
+
+// =============================================================================
+// PRE-SAVE MIDDLEWARE
+// =============================================================================
+
+// Update timestamps
+const updateTimestamp = function(this: any, next: any) {
+  this.updatedAt = new Date();
+  next();
+};
+
+tenantSchema.pre('save', updateTimestamp);
+userSchema.pre('save', updateTimestamp);
+categorySchema.pre('save', updateTimestamp);
+productSchema.pre('save', updateTimestamp);
+
+// Generate slug for products
+productSchema.pre('save', function(this: IProduct, next) {
+  if (this.isModified('name') && !this.seo.slug) {
+    this.seo.slug = this.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '');
+  }
+  next();
+});
+
+// =============================================================================
+// STATIC METHODS & VIRTUALS
+// =============================================================================
+
+// Tenant static methods
+tenantSchema.statics.findBySubdomain = function(subdomain: string) {
+  return this.findOne({ subdomain: subdomain.toLowerCase() });
+};
+
+// User static methods
+userSchema.statics.findByTenant = function(tenantId: string) {
+  return this.find({ tenantId, isActive: true });
+};
+
+// Product virtuals
+productSchema.virtual('isInStock').get(function(this: IProduct) {
+  if (!this.inventory.trackStock) return true;
+  return this.inventory.stockQuantity > 0;
+});
+
+// =============================================================================
+// MODELS EXPORT
+// =============================================================================
+
+export const Tenant = (mongoose.models.Tenant as Model<ITenant>) || mongoose.model<ITenant>('Tenant', tenantSchema);
+export const User = (mongoose.models.User as Model<IUser>) || mongoose.model<IUser>('User', userSchema);
+export const Category = (mongoose.models.Category as Model<ICategory>) || mongoose.model<ICategory>('Category', categorySchema);
+export const Product = (mongoose.models.Product as Model<IProduct>) || mongoose.model<IProduct>('Product', productSchema);
+
+// Export interfaces
+export type { ITenant, IUser, ICategory, IProduct, BaseDocument, TenantDocument };
